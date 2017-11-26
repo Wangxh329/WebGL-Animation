@@ -1,0 +1,1076 @@
+<!-- Graphics Example Code.  index.html - The web page document containing the canvas (drawing surface), that launches your javascript files.  By Garett //-->
+<!DOCTYPE html> <html> <head> <meta charset="UTF-8"/> <link rel="icon" href="assets/fav.ico">
+  <!--// initial background music //-->
+  <audio autoplay="autoplay" loop="loop" preload="auto">
+    <source src="Summer.mp3" type="audio/mpeg">
+  </audio>
+<script type="text/javascript" src="tinywebgl-ucla.js" ></script>  <!--  Javascript "include" files.  Any code in them gets executed as part of the page loading. //-->
+<script type="text/javascript" src="dependencies.js"   ></script>
+<script type="text/javascript"> "use strict"    
+  window.onload = function init()        // ********************* THE ENTRY POINT OF THE WHOLE PROGRAM STARTS HERE ********************* 
+    { window.contexts = {};                                                            // A global variable, "contexts".  Browsers support up to 16 WebGL contexts per page.
+      
+      const scenes  = [ "Animation_Scene", /*"Tutorial_Animation",*/ /*"Surfaces_Demo",*/ "Movement_Controls", "Global_Info_Table" ]; // Register some scenes to the "Canvas_Manager" object -- which WebGL calls
+                                                                                       // upon every time a draw / keyboard / mouse event happens.  
+      
+      if( eval( "typeof " + scenes[0] ) !== "undefined" )
+      { document.getElementById( "canvases" ).appendChild( Object.assign( document.createElement( "canvas" ), { id: "main_canvas", width: 800, height: 600 } ) );
+        contexts[ "main_canvas" ] = new Canvas_Manager( "main_canvas", Color.of( 0,0,0,1 ), scenes );   // Manage the WebGL canvas.  Second parameter sets background color.
+        for( let c in contexts ) contexts[ c ].render();     // Call render() for each WebGL context on this page.  Then render() will re-queue itself for more calls.
+        
+        Code_Manager.display_code( eval( scenes[0] ) );                                  // Display the code for our demo on the page, starting with the first scene in the list.
+        for( let list of [ core_dependencies, all_dependencies ] )
+        document.querySelector( "#class_list" ).rows[2].appendChild( Object.assign( document.createElement( "td" ), { 
+          innerHTML: list.reduce( (acc, x) => acc += "<a href='javascript:void(0);' onclick='Code_Manager.display_code(" + x + ")'>" + x + "</a><br>", "" ) } ) );        
+        document.getElementsByName( "main_demo_link" )[0].innerHTML = "<a href='javascript:void(0);' onclick='Code_Manager.display_code(" + scenes[0] + ")'>" + scenes[0] + "</a><br>";
+        document.querySelector("#code_display").innerHTML = "Below is the code for the demo that's running:<br>&nbsp;<br>" + document.querySelector("#code_display").innerHTML;             
+      }
+      
+      document.querySelector("#edit_button").addEventListener('click', () => {
+        code_panel.style.display=class_list.style.display='none'; new_demo_source_code.style.display='block'; 
+        document.getElementsByName( 'new_demo_code' )[0].value=code_display.dataset.displayed.toString() } )
+      const form = document.forms.namedItem("new_demo_source_code");
+      form.addEventListener('submit', function(event) 
+        { if( document.getElementsByName( "finished" )[0].checked )
+            alert( "Your demo will be submitted.  If approved, you will start being asked for a password to make any further updates to it.  This password "
+                 + "will appear right now, below the submit button, and then (assuming submission worked) it will never appear again.  Write it down." );
+          var xhr = new XMLHttpRequest();
+          xhr.open("POST", "/submit-demo?Unapproved", true);
+          xhr.responseType = "json";
+          xhr.onload = function(event) 
+          { if (xhr.status != 200) { document.querySelector("#submit_result").textContent = "Error " + xhr.status + " when trying to upload."; return }
+            document.querySelector("#submit_result").textContent = this.response.message;
+            // if( this.response.hide_finished_checkbox ) { document.getElementsByName( "finished" )[0].checked = false; expert_panel.style.display = "none" }
+            if( this.response.show_password  ) document.getElementsByName( "password" )[0] .style.display = "inline";
+            if( this.response.show_overwrite ) document.querySelector( "#overwrite_panel" ).style.display = "inline";
+          };
+          xhr.setRequestHeader("Content-Type", "application/json");
+          xhr.send( JSON.stringify( Array.from( form.elements ).reduce( ( accum, elem ) => 
+            { if( elem.value && !( ['checkbox', 'radio'].includes(elem.type) && !elem.checked ) ) accum[elem.name] = elem.value; return accum }, {} ) ) );
+          event.preventDefault();
+        }, false);      
+    }
+
+// Below is the demo you will see when you run the program!    
+  
+class Tutorial_Animation extends Scene_Component  // An example of a Scene_Component that our class Canvas_Manager can manage.  Like most, this one draws 3D shapes.
+{ constructor( context )
+    { super( context );
+      var shapes = { 'triangle'        : new Triangle(),                            // At the beginning of our program, instantiate all shapes we plan to use,
+                     'strip'           : new Square(),                              // each with only one instance in the graphics card's memory.
+                     'bad_tetrahedron' : new Tetrahedron( false ),                  // For example we would only create one "cube" blueprint in the GPU, but then 
+                     'tetrahedron'     : new Tetrahedron( true ),                   // re-use it many times per call to display to get multiple cubes in the scene.
+                     'windmill'        : new Windmill( 10 ),
+                     'subdivision'     : new Subdivision_Sphere(4)
+      };
+      this.submit_shapes( context, shapes );
+      
+       // Place the camera, which is stored in a scratchpad for globals.  Secondly, setup the projection:  The matrix that determines how depth is treated.  It projects 3D points onto a plane.
+      Object.assign( context.globals.graphics_state, { camera_transform: Mat4.translation([ 0, 0,-25 ]), projection_transform: Mat4.perspective( Math.PI/4, context.width/context.height, .1, 1000 ) } );
+      
+      // *** Materials: *** Declare new ones as temps when needed; they're just cheap wrappers for some numbers.  1st parameter:  Color (4 floats in RGBA format),
+      // 2nd: Ambient light, 3rd: Diffuse reflectivity, 4th: Specular reflectivity, 5th: Smoothness exponent, 6th: Optional texture object, leave off for un-textured.
+      Object.assign( this, { purplePlastic: context.get_instance( Phong_Model  ).material( Color.of( .9,.5,.9, 1 ), .4, .4, .8, 40 ),
+                             greyPlastic  : context.get_instance( Phong_Model  ).material( Color.of( .5,.5,.5, 1 ), .4, .8, .4, 20 ),   // Smaller exponent means 
+                             blueGlass    : context.get_instance( Phong_Model  ).material( Color.of( .5,.5, 1,.2 ), .4, .8, .4, 40 ),   // a bigger shiny spot.
+                             fire         : context.get_instance( Funny_Shader ).material(),
+                             stars        : context.get_instance( Phong_Model  ).material( Color.of( 0,0,1,1 ), .5, .5, .5, 40, context.get_instance( "assets/stars.png" ) ) } );                             
+    }
+  display( graphics_state )
+    { var model_transform = Mat4.identity();             // We begin with a brand new model_transform every frame.
+      
+      // *** Lights: *** Values of vector or point lights over time.  Two different lights *per shape* supported by Phong_Shader; more requires changing a number in the vertex 
+      graphics_state.lights = [ new Light( Vec.of(  30,  30,  34, 1 ), Color.of( 0, .4, 0, 1 ), 100000 ),      // shader.  Arguments to construct a Light(): Light source position
+                                new Light( Vec.of( -10, -20, -14, 0 ), Color.of( 1, 1, .3, 1 ), 100    ) ];    // or vector (homogeneous coordinates), color, and size.  
+      
+      model_transform.post_multiply( Mat4.translation([ 0, 5, 0 ]) );
+      this.shapes.triangle       .draw( graphics_state, model_transform, this.stars );
+      
+      model_transform.post_multiply( Mat4.translation([ 0, -2, 0 ]) );
+      this.shapes.strip          .draw( graphics_state, model_transform, this.greyPlastic   );
+      
+      var t = graphics_state.animation_time/1000,   tilt_spin   = Mat4.rotation( 12*t, Vec.of(          .1,          .8,             .1 ) ),
+                                                    funny_orbit = Mat4.rotation(  2*t, Vec.of( Math.cos(t), Math.sin(t), .7*Math.cos(t) ) );
+
+      // Many shapes can share influence of the same pair of lights, but they don't have to.  All the following shapes will use these lights instead of the above ones.
+      graphics_state.lights = [ new Light( tilt_spin.times( Vec.of(  30,  30,  34, 1 ) ), Color.of( 0, .4, 0, 1 ), 100000               ),
+                                new Light( tilt_spin.times( Vec.of( -10, -20, -14, 0 ) ), Color.of( 1, 1, .3, 1 ), 100*Math.cos( t/10 ) ) ];
+                                
+      model_transform.post_multiply( Mat4.translation([ 0, -2, 0 ]) );
+      this.shapes.tetrahedron    .draw( graphics_state, model_transform.times( funny_orbit ), this.purplePlastic );
+      
+      model_transform.post_multiply( Mat4.translation([ 0, -2, 0 ]) );
+      this.shapes.bad_tetrahedron.draw( graphics_state, model_transform.times( funny_orbit ), this.greyPlastic   );
+      
+      model_transform.post_multiply( Mat4.translation([ 0, -2, 0 ]) );
+      this.shapes.windmill       .draw( graphics_state, model_transform.times( tilt_spin ),   this.purplePlastic );
+      model_transform.post_multiply( Mat4.translation([ 0, -2, 0 ]) );
+      this.shapes.windmill       .draw( graphics_state, model_transform,                      this.fire          );
+      model_transform.post_multiply( Mat4.translation([ 0, -2, 0 ]) );
+      this.shapes.windmill       .draw( graphics_state, model_transform,                      this.blueGlass     );
+        model_transform.post_multiply( Mat4.translation([ 0, -2, 0 ]) );
+        this.shapes.subdivision       .draw( graphics_state, model_transform,                      this.greyPlastic     );
+    }
+}
+
+/*********************** My Shapes ************************/
+/********* Made from Surface_demo ***********/
+class Cylinder extends Shape   // Combine a tube and two regular polygons to make a closed cylinder.  Flat shade this to make a prism, where #columns = #sides.
+{ constructor( rows, texture_range )
+  { super();
+    Cylindrical_Tube  .prototype.insert_transformed_copy_into( this, [ rows, 50, texture_range ] );
+    Regular_2D_Polygon.prototype.insert_transformed_copy_into( this, [ 1, 50 ], Mat4.translation([ 0, 0, 1 ]) );
+    Regular_2D_Polygon.prototype.insert_transformed_copy_into( this, [ 1, 50 ], Mat4.rotation( Math.PI, Vec.of(0, 1, 0) ).times( Mat4.translation([ 0, 0, 1 ]) ) );
+  }
+}
+
+// columns: edges; rows >= 1, change height = 2
+class Gradient_Tube extends Surface_Of_Revolution    // An open tube shape with equally sized sections, pointing down Z locally.
+{ constructor( rows, columns, texture_range, smallRadius )
+  { super( rows, columns, [ ...Vec.cast( [smallRadius, 0, 1], [1, 0, -1] ) ], texture_range );
+  }
+}
+
+class Half_Gradient_Tube extends Half_Surface_Of_Revolution    // An open tube shape with equally sized sections, pointing down Z locally.
+{ constructor( rows, columns, texture_range, smallRadius )
+  { super( rows, columns, [ ...Vec.cast( [smallRadius, 0, 1], [1, 0, -1] ) ], texture_range );
+  }
+}
+
+class Trapezoidal_Cylinder extends Shape   // Combine a tube and two regular polygons to make a closed cylinder.  Flat shade this to make a prism, where #columns = #sides.
+{ constructor( rows, columns, texture_range,  smallRadius)
+  { super();
+    Gradient_Tube.prototype.insert_transformed_copy_into( this, [ rows, columns, texture_range, smallRadius ] );
+    Regular_2D_Polygon.prototype.insert_transformed_copy_into( this, [ 1, columns ], Mat4.translation([ 0, 0, 1 ]).times(Mat4.scale([smallRadius, smallRadius, 1])) );
+    Regular_2D_Polygon.prototype.insert_transformed_copy_into( this, [ 1, columns ], Mat4.rotation( Math.PI, Vec.of(0, 1, 0) ).times( Mat4.translation([ 0, 0, 1 ]) ) );
+  }
+}
+
+class Half_Trapezoidal_Cylinder extends Shape   // Combine a tube and two regular polygons to make a closed cylinder.  Flat shade this to make a prism, where #columns = #sides.
+{ constructor( rows, columns, texture_range,  smallRadius)
+  { super();
+    Half_Gradient_Tube.prototype.insert_transformed_copy_into( this, [ rows, columns, texture_range, smallRadius ] );
+    Half_Regular_2D_Polygon.prototype.insert_transformed_copy_into( this, [ 1, columns ], Mat4.translation([ 0, 0, 1 ]).times(Mat4.scale([smallRadius, smallRadius, 1])) );
+    Half_Regular_2D_Polygon.prototype.insert_transformed_copy_into( this, [ 1, columns ], Mat4.rotation( Math.PI, Vec.of(0, 1, 0) ).times( Mat4.translation([ 0, 0, 1 ]) ) );
+  }
+}
+
+/***** My LeafShape *****/
+class LeafShape_front extends Shape      // A square, demonstrating shared vertices.  On any planar surface, the interior edges don't make any important seams.
+{ constructor()                 // In these cases there's no reason not to re-use data of the common vertices between triangles.  This makes all the
+{ super();                  // vertex arrays (position, normals, etc) smaller and more cache friendly.
+    this.positions     .push( ...Vec.cast( [0,.25,0], [0,-.25,0], [.2,.33,0], [.2,-.23,0], [.25,.33,0], [.25,-.21,0], [.35,.32,0], [.35,-.17,0], [.5,.27,0], [.5,-.13,0], [.6,.22,0], [.6,-.1,0], [.75,.17,0], [.75,-.07,0], [.85,.12,0], [.85,-.03,0], [.95,.03,0], [.95,-.01,0], [1,0,0] ) );     // Specify the 4 vertices -- the point cloud that our Square needs.
+    this.normals       .push( ...Vec.cast( [0, -.2, -1], [0, .2, -1], [0, -.2, -1], [0, .2, -1], [0, -.2, -1], [0, .2, -1], [0, -.2, -1], [0, .2, -1], [0, -.2, -1], [0, .2, -1], [0, -.2, -1], [0, .2, -1], [0, -.2, -1], [0, .2, -1], [0, -.2, -1], [0, .2, -1], [0, -.2, -1], [0, .2, -1], [0, 0, -1] ) );     // ...
+    this.texture_coords.push( ...Vec.cast( [0,.25], [0,-.25], [.2,.33], [.2,-.23], [.25,.33], [.25,-.21], [.35,.32], [.35,-.17], [.5,.27], [.5,-.13], [.6,.22], [.6,-.1], [.75,.17], [.75,-.07], [.85,.12], [.85,-.03], [.95,.03], [.95,-.01], [1,0]   ) );     // ...
+    this.indices       .push( 0, 1, 2, 1,2,3, 2,3,4, 3,4,5, 4,5,6, 5,6,7, 6,7,8, 7,8,9, 8,9,10, 9,10,11, 10,11,12, 11,12,13, 12,13,14, 13,14,15, 14,15,16, 15,16,17, 16,17,18 );                                      // Two triangles this time, indexing into four distinct vertices.
+}
+}
+
+class LeafShape_back extends Shape      // A square, demonstrating shared vertices.  On any planar surface, the interior edges don't make any important seams.
+{ constructor()                 // In these cases there's no reason not to re-use data of the common vertices between triangles.  This makes all the
+  { super();                  // vertex arrays (position, normals, etc) smaller and more cache friendly.
+    this.positions     .push( ...Vec.cast( [0,.25,0], [0,-.25,0], [.2,.33,0], [.2,-.23,0], [.25,.33,0], [.25,-.21,0], [.35,.32,0], [.35,-.17,0], [.5,.27,0], [.5,-.13,0], [.6,.22,0], [.6,-.1,0], [.75,.17,0], [.75,-.07,0], [.85,.12,0], [.85,-.03,0], [.95,.03,0], [.95,-.01,0], [1,0,0] ) );     // Specify the 4 vertices -- the point cloud that our Square needs.
+    this.normals       .push( ...Vec.cast( [0, -.2, 1], [0, .2, 1], [0, -.2, 1], [0, .2, 1], [0, -.2, 1], [0, .2, 1], [0, -.2, 1], [0, .2, 1], [0, -.2, 1], [0, .2, 1], [0, -.2, 1], [0, .2, 1], [0, -.2, 1], [0, .2, 1], [0, -.2, 1], [0, .2, 1], [0, -.2, 1], [0, .2, 1], [0, 0, 1] ) );     // ...
+    this.texture_coords.push( ...Vec.cast( [0,.25], [0,-.25], [.2,.33], [.2,-.23], [.25,.33], [.25,-.21], [.35,.32], [.35,-.17], [.5,.27], [.5,-.13], [.6,.22], [.6,-.1], [.75,.17], [.75,-.07], [.85,.12], [.85,-.03], [.95,.03], [.95,-.01], [1,0]   ) );     // ...
+    this.indices       .push( 0, 1, 2, 1,2,3, 2,3,4, 3,4,5, 4,5,6, 5,6,7, 6,7,8, 7,8,9, 8,9,10, 9,10,11, 10,11,12, 11,12,13, 12,13,14, 13,14,15, 14,15,16, 15,16,17, 16,17,18 );                                      // Two triangles this time, indexing into four distinct vertices.
+  }
+}
+
+/***** My Semi_Sphere *****/
+class Circle_Triangle extends Shape    // First, the simplest possible Shape – one triangle.  It has 3 vertices, each
+{ constructor()                 // having their own 3D position, normal vector, and texture-space coordinate.
+  { super();
+    this.positions      = [ Vec.of(0,0,0), Vec.of(1,0,0), Vec.of(Math.cos(Math.PI / 100),Math.sin(Math.PI / 100),0) ];   // Specify the 3 vertices -- the point cloud that our Triangle needs.
+    this.normals        = [ Vec.of(0,0,1), Vec.of(0,0,1), Vec.of(0,0,1) ];   // ...
+    this.texture_coords = [ Vec.of(0,0),   Vec.of(1,0),   Vec.of(Math.cos(Math.PI / 100),Math.sin(Math.PI / 100))   ];   // ...
+    this.indices        = [ 0, 1, 2 ];                                       // Index into our vertices to connect them into a whole Triangle.
+  }
+}
+
+class Circle extends Shape
+{ constructor()
+{ super();
+    for (var i = Math.PI / 100; i <= Math.PI * 2; i += Math.PI / 100) {
+        var cirTrian_transform = Mat4.rotation(i, Vec.of(0, 0, 1));
+        Circle_Triangle.prototype.insert_transformed_copy_into(this, [], cirTrian_transform);
+    }
+}
+}
+
+class Semi_Circle extends Shape
+{ constructor()
+  { super();
+    for (var i = Math.PI / 100; i <= Math.PI; i += Math.PI / 100) {
+        var cirTrian_transform = Mat4.rotation(i, Vec.of(0, 0, 1));
+        Circle_Triangle.prototype.insert_transformed_copy_into(this, [], cirTrian_transform);
+    }
+  }
+}
+
+class Semi_Sphere extends Shape
+{ constructor()
+    { super();
+        for (var i = Math.PI / 100; i <= Math.PI; i += Math.PI / 100) {
+            var semiCir_transform = Mat4.rotation(i, Vec.of(1, 0, 0));
+            Semi_Circle.prototype.insert_transformed_copy_into(this, [], semiCir_transform);
+        }
+    }
+}
+
+/*********************** My Scene *************************/
+class Animation_Scene extends Scene_Component  // Code your butterfly assignment below.  It is an example of drawing a hierarchical object using a "model_transform" matrix.
+{ constructor( context )
+  { super( context );
+    var shapes = {
+        "box"                     : new Cube(),                            // Load one of each of these shape definitions onto the GPU.  Once each Shape is there we
+        "sphere"                  : new Subdivision_Sphere( 4 ),         // re-use it many times per display() call to get multiple of that shape to appear in the scene.
+        "stone"                   : new (Subdivision_Sphere.prototype.make_flat_shaded_version())(2),
+        "circle"                  : new Circle(),
+        "semi_circle"             : new Semi_Circle(),
+        "semi_sphere"             : new Semi_Sphere(),
+        "cylinder"                : new Cylinder( 4, [[0,1],[0,1]] ),  // Cylinder
+        "tra_cylinder"            : new Trapezoidal_Cylinder(4, 30, [[0,1],[0,1]], .7),
+        "tra_platform"            : new Trapezoidal_Cylinder(4, 30, [[0,1],[0,1]], .5),
+        "tra_croco_mouse"         : new Trapezoidal_Cylinder(4, 4, [[0,1],[0,1]], .3),
+        "tra_mouse"               : new Trapezoidal_Cylinder(4, 8, [[0,1],[0,1]], .5),
+        "half_tra_cyl_upmouse"    : new Half_Trapezoidal_Cylinder(4, 5, [[0,1],[0,1]], .5),
+        "half_tra_cyl_bottommouse": new Half_Trapezoidal_Cylinder(4, 3, [[0,1],[0,1]], .5),
+        "donut"                   : new Torus( 30, 30 ),
+        "cone"                    : new Closed_Cone( 4, 30, [[0,1],[0,1]] ),
+        "croco_tail"               : new Closed_Cone( 4, 4, [[0,1],[0,1]] ),
+        "leaf_front"              : new LeafShape_front(),
+        "leaf_back"               : new LeafShape_back()};
+    this.submit_shapes( context, shapes );
+    // Define the global camera and projection matrices.
+    // Arguments to perspective() are field of view, aspect ratio, near plane and far plane.
+    // Place the camera, which is stored in a scratchpad for globals.  Secondly, setup the projection:  The matrix that determines how depth is treated.  It projects 3D points onto a plane.
+    Object.assign( context.globals.graphics_state, { camera_transform: Mat4.translation([ 55.75, -5, -45 ]), projection_transform: Mat4.perspective( Math.PI/4, context.width/context.height, .1, 1000 ) } );
+
+    // *** Materials: *** Declare new ones as temps when needed; they're just cheap wrappers for some numbers.  1st parameter:  Color (4 floats in RGBA format),
+    // 2nd: Ambient light, 3rd: Diffuse reflectivity, 4th: Specular reflectivity, 5th: Smoothness exponent, 6th: Optional texture object, leave off for un-textured.
+    Object.assign( this, {
+        /***** picture *****/
+        // buffalo
+        buffalo_skin_foot: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/skin_foot.jpg" ) ),
+        buffalo_skin_body: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/skin_body.jpg" ) ),
+        buffalo_skin_body2: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/skin_body2.jpeg" ) ),
+        buffalo_skin_body3: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/skin_body3.jpeg" ) ),
+        buffalo_skin_body4: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/skin_body4.jpeg" ) ),
+        buffalo_skin_body5: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/skin_body5.jpeg" ) ),
+        buffalo_skin_body6: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/skin_body6.jpeg" ) ),
+        buffalo_skin_body7: context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/skin_body7.jpeg" ) ),
+        buffalo_horn1    : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/horn1.jpeg" ) ),
+        buffalo_horn2    : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/buffalo/horn2.jpeg" ) ),
+        // crocodile
+        crocodile_skin1  : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/crocodile/skin1.jpeg" ) ),
+        crocodile_skin2  : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/crocodile/skin2.jpeg" ) ),
+        crocodile1       : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/crocodile/crocodile1.jpeg" ) ),
+        crocodile2       : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/crocodile/crocodile2.jpeg" ) ),
+        crocodile3       : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/crocodile/crocodile3.jpeg" ) ),
+        // sky
+        sky1             : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/sky/sky1.jpeg" ) ),
+        sky2             : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/sky/sky2.jpeg" ) ),
+        sky3             : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/sky/sky3.jpeg" ) ),
+        // grass
+        grass            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/grass.jpeg" ) ),
+        // water
+        lake1            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/water/lake1.jpeg" ) ),
+        lake2            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/water/lake2.jpeg" ) ),
+        lake3            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/water/lake3.jpeg" ) ),
+        lake4            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/water/lake4.jpeg" ) ),
+        // wood
+        wood1            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/wood/wood1.jpeg" ) ),
+        wood2            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/wood/wood2.jpg" ) ),
+        wood             : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/wood/wood.jpg" ) ),
+        // letters
+        letter_t            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/letters/T.jpg" ) ),
+        letter_h            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/letters/H.jpg" ) ),
+        letter_e            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/letters/E.jpg" ) ),
+        letter_n            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/letters/N.jpg" ) ),
+        letter_d            : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/letters/D.jpg" ) ),
+        /***** RGBA *****/
+        black        : context.get_instance( Phong_Model ).material( Color.of( 0, 0, 0,  1 ), .2, 1, .7, 40 ),
+        white        : context.get_instance( Phong_Model ).material( Color.of( 1, 1, 1,  1 ), .2, 1, .7, 40 ),
+        yellow       : context.get_instance( Phong_Model ).material( Color.of( .8, .8, .3,  1 ), .2, 1, .7, 40 ),  // Call material() on the Phong_Shader,
+        brown        : context.get_instance( Phong_Model ).material( Color.of( .3, .3, .1,  1 ), .2, 1,  1, 40 ),  // which returns a special-made "material"
+        red          : context.get_instance( Phong_Model ).material( Color.of(  1,  0,  0, .9 ), .1, .7, 1, 40 ),  // (a JavaScript object)
+        pink         : context.get_instance( Phong_Model ).material( Color.of(  1,  .36,  6, 1 ), .5, .5, .5, 40 ),
+        green        : context.get_instance( Phong_Model ).material( Color.of(  0, .5,  0,  1 ), .1, .7, 1, 40 ),
+        blue         : context.get_instance( Phong_Model ).material( Color.of(  0,  0,  1, .8 ), .1, .7, 1, 40 ),
+        silver       : context.get_instance( Phong_Model ).material( Color.of( .8, .8, .8,  1 ),  0,  1, 1, 40 ),
+        /***** materials *****/
+        purplePlastic: context.get_instance( Phong_Model  ).material( Color.of( .9,.5,.9, 1 ), .4, .4, .8, 40 ),
+        greyPlastic  : context.get_instance( Phong_Model  ).material( Color.of( .5,.5,.5, 1 ), .4, .8, .4, 20 ),   // Smaller exponent means
+        blueGlass    : context.get_instance( Phong_Model  ).material( Color.of( .5,.5, 1,.2 ), .4, .8, .4, 40 ),   // a bigger shiny spot.
+        fire         : context.get_instance( Funny_Shader ).material(),
+        stars        : context.get_instance( Phong_Model  ).material( Color.of( 0,0,0,1 ), .5, .5, .5, 40, context.get_instance( "assets/stars.png" ) ) } );
+  }
+
+    /***** Common Shapes *****/
+    draw_pillShape(graphics_state, model_transform, body_texture)
+    {
+        var cyl_transform = model_transform.times(Mat4.scale([1, 1, 1.25]));
+        this.shapes.cylinder.draw( graphics_state, cyl_transform, body_texture );
+        for(var i of [-1.25, 1.25])
+        {
+            var semisph_transform = model_transform.times(Mat4.translation([0, 0, i]));
+            this.shapes.sphere.draw(graphics_state, semisph_transform, body_texture);
+        }
+    }
+
+    /***** Draw Buffalo *****/
+    draw_upperLeg(graphics_state, model_transform, body_texture) // model_transform在pill中心
+    {
+        model_transform = model_transform.times(Mat4.rotation(Math.PI / 2, Vec.of(1, 0, 0)));
+        this.draw_pillShape( graphics_state, model_transform, body_texture);
+    }
+
+    draw_middleLeg(graphics_state, model_transform) // model_transform在tra_cylinder中心
+    {
+        model_transform = model_transform.times(Mat4.rotation(Math.PI / 2, Vec.of(1, 0, 0)));
+        this.shapes.tra_cylinder.draw(graphics_state, model_transform, this.buffalo_skin_foot);
+        model_transform = model_transform.times(Mat4.translation([0, 0, 1.5])).times(Mat4.scale([.7, .7, .5]));
+        this.shapes.cylinder.draw( graphics_state, model_transform, this.buffalo_skin_foot );
+    }
+
+    draw_foot(graphics_state, model_transform) // model_transform在ring中心
+    {
+        var ring_transform = model_transform.times(Mat4.scale([.8, .6, .8])).times(Mat4.rotation(Math.PI / 2, Vec.of(1, 0, 0)));
+        this.shapes.donut.draw( graphics_state, ring_transform, this.buffalo_skin_foot );
+        model_transform = model_transform.times(Mat4.translation([0, -.5, 0])).times(Mat4.scale([1, .5, 1])).times(Mat4.rotation(-Math.PI / 2, Vec.of(1, 0, 0)));
+        this.shapes.tra_platform.draw(graphics_state, model_transform, this.buffalo_skin_foot);
+    }
+
+    draw_leg(graphics_state, model_transform, body_texture)
+    {
+        // upper(pillShape)
+        this.draw_upperLeg(graphics_state, model_transform, body_texture);
+        // middle(trapezoidal_cyl + cylinder)
+        var middle_transform = model_transform.times(Mat4.translation([0, -2.5, 0])).times(Mat4.scale([.7, 1, .7]));
+        this.draw_middleLeg(graphics_state, middle_transform);
+        // bottom(foot)
+        var foot_transform = model_transform.times(Mat4.translation([0, -4.5, 0])).times(Mat4.scale([.7, 1, .7]));
+        this.draw_foot(graphics_state, foot_transform);
+    }
+
+    draw_tail(graphics_state, model_transform, body_texture)
+    {
+        var r = -Math.PI / 15 + Math.PI / 18 * Math.sin(2*Math.PI / 3 * this.t);
+        var upper_transform = model_transform.times(Mat4.scale([.25, .25, .6]));
+        this.shapes.cylinder.draw( graphics_state, upper_transform, body_texture );
+        var rotateEdge = model_transform.times(Mat4.translation([0,-.25,-.6])).times(Mat4.rotation(r,Vec.of( 1,0,0 ))); // record the location of rotate edge
+        var centerPoint = rotateEdge.times(Mat4.translation([0,.25,-.6])); // record the center of mass of every part of antenna
+        var base = centerPoint.times(Mat4.scale([.25,.25,.6])).times(Mat4.rotation(Math.PI, Vec.of(1, 0, 0)));
+        this.shapes.tra_cylinder.draw(graphics_state, base, body_texture);
+        rotateEdge = rotateEdge.times(Mat4.translation([0, .075, -1.2])).times(Mat4.rotation(r,Vec.of( 1,0,0 )));
+        centerPoint = rotateEdge.times(Mat4.translation([0, .175, -.6]));
+        base = centerPoint.times(Mat4.scale([.175, .175, .6]));
+        this.shapes.cylinder.draw(graphics_state, base, body_texture);
+
+        // tail cone
+        var tail_transform = rotateEdge.times(Mat4.translation([0, .175, -1.2]));
+        var tailPill_transform = tail_transform.times(Mat4.scale([.25, .25, .25]));
+        this.draw_pillShape(graphics_state, tailPill_transform, body_texture);
+        tail_transform = tail_transform.times(Mat4.translation([0, 0, -.7])).times(Mat4.scale([.25, .25, .3])).times(Mat4.rotation(Math.PI, Vec.of(1, 0, 0)));
+        this.shapes.cone.draw(graphics_state, tail_transform, body_texture);
+    }
+
+    draw_mouse(graphics_state, model_transform, r, body_texture) // model_transform在nose中心
+    {
+        var nose_transform = model_transform.times(Mat4.scale([1.7, 1.7, 1])).times(Mat4.rotation(Math.PI / 8, Vec.of(0, 0, 1)));
+        this.shapes.tra_mouse.draw(graphics_state, nose_transform, body_texture);
+        var upmouse_transform = model_transform.times(Mat4.translation([0, -.04, 1.3])).times(Mat4.scale([.85, .9, .3]));
+        this.shapes.half_tra_cyl_upmouse.draw(graphics_state, upmouse_transform, this.buffalo_skin_foot);
+        for(var j of [-.15, .15])
+        {
+            var nostril_transform = model_transform.times(Mat4.translation([j, .2, 1.6])).times(Mat4.rotation(-Math.PI / 2, Vec.of(0, 1, 0)));
+            nostril_transform = nostril_transform.times(Mat4.scale([.07, .07, .13]));
+            this.shapes.sphere.draw(graphics_state, nostril_transform, this.buffalo_skin_body);
+
+        }
+        var rotate_transform = model_transform.times(Mat4.translation([0,-.4,.9])).times(Mat4.rotation(r,Vec.of( 1,0,0 )));
+        var bottommouse_transform = rotate_transform.times(Mat4.translation([0, .37, .4])).times(Mat4.scale([.85, .9, .3])).times(Mat4.rotation(Math.PI, Vec.of(0, 0, 1)));
+        this.shapes.half_tra_cyl_bottommouse.draw(graphics_state, bottommouse_transform, this.buffalo_skin_foot);
+    }
+
+    draw_horn(graphics_state, model_transform) // model_transform在第一节中心
+    {
+        var piece1_transform = model_transform.times(Mat4.scale([.3, .3, .6]));
+        this.shapes.cylinder.draw(graphics_state, piece1_transform, this.buffalo_horn2);
+        var piece2_transform = piece1_transform.times(Mat4.translation([-.8*Math.sin(Math.PI / 12), 0, -1.2*Math.cos(Math.PI / 12)])).times(Mat4.scale([1, 1, .8])).times(Mat4.rotation(Math.PI / 12, Vec.of(0,1,0)));
+        this.shapes.cylinder.draw(graphics_state, piece2_transform, this.buffalo_horn2);
+        var piece3_transform = piece2_transform.times(Mat4.translation([-.8*Math.sin(Math.PI / 8), 0, -1.2*Math.cos(Math.PI / 8)])).times(Mat4.scale([1, 1, 1])).times(Mat4.rotation(Math.PI / 8, Vec.of(0,1,0)));
+        this.shapes.cylinder.draw(graphics_state, piece3_transform, this.buffalo_horn2);
+        var piece4_transform = piece3_transform.times(Mat4.translation([-Math.sin(Math.PI / 6), 0, -1.5*Math.cos(Math.PI / 6)])).times(Mat4.scale([1, 1, 1])).times(Mat4.rotation(Math.PI / 6, Vec.of(0,1,0)));
+        this.shapes.cylinder.draw(graphics_state, piece4_transform, this.buffalo_horn2);
+        var piece5_transform = piece4_transform.times(Mat4.translation([-.2, 0, -4*Math.cos(Math.PI / 4)])).times(Mat4.scale([1, 1, 2])).times(Mat4.rotation(Math.PI / 15, Vec.of(0,1,0)));
+        this.shapes.tra_platform.draw(graphics_state, piece5_transform.times(Mat4.rotation(Math.PI, Vec.of(0, 1, 0))), this.buffalo_horn2);
+        var piece6_transform = piece5_transform.times(Mat4.translation([-.2, 0, -2.5*Math.cos(Math.PI / 4)])).times(Mat4.scale([.5, .5, 1])).times(Mat4.rotation(Math.PI / 12, Vec.of(0,1,0)));
+        this.shapes.cone.draw(graphics_state, piece6_transform.times(Mat4.rotation(Math.PI, Vec.of(0, 1, 0))), this.buffalo_horn2);
+    }
+
+    draw_head(graphics_state, model_transform, body_texture) // model_transform在脑袋中心
+    {
+        var r = Math.PI / 24 + Math.PI / 24 * Math.sin(5*Math.PI / 3 * this.t);
+        // head
+        var head_transform = model_transform.times(Mat4.scale([1.8, 1.8, 1.8]));
+        this.shapes.sphere.draw(graphics_state, head_transform, body_texture);
+        // eye
+        for(var i of [-1.2, 1.2])
+        {
+            var eye_transform = model_transform.times(Mat4.translation([i, -.2, 1.5])).times(Mat4.scale([.3, .3, .5]));
+            this.shapes.sphere.draw(graphics_state, eye_transform, this.black);
+        }
+        // nose & mouse
+        var nose_mouse_transform = model_transform.times(Mat4.translation([0, -1.1, 1.5])).times(Mat4.rotation(Math.PI / 5, Vec.of(1, 0, 0)));
+        this.draw_mouse(graphics_state, nose_mouse_transform, r, body_texture);
+        // ear
+        var earfront_transform = model_transform.times(Mat4.translation([1.5, 0, 0])).times(Mat4.scale([1.8, 1.2, 1.2]));
+        this.shapes.leaf_front.draw( graphics_state, earfront_transform, this.buffalo_horn1 );
+        var earback_transform = model_transform.times(Mat4.translation([1.5, 0, -.01])).times(Mat4.scale([1.8, 1.2, 1.2]));
+        this.shapes.leaf_front.draw( graphics_state, earback_transform, this.buffalo_horn1 );
+        earfront_transform = model_transform.times(Mat4.rotation(Math.PI, Vec.of(0, 1, 0))).times(Mat4.translation([1.5, 0, 0])).times(Mat4.scale([1.8, 1.2, 1.2]));
+        this.shapes.leaf_front.draw( graphics_state, earfront_transform, this.buffalo_horn1 );
+        earback_transform = model_transform.times(Mat4.rotation(Math.PI, Vec.of(0, 1, 0))).times(Mat4.translation([1.5, 0, -.01])).times(Mat4.scale([1.8, 1.2, 1.2]));
+        this.shapes.leaf_front.draw( graphics_state, earback_transform, this.buffalo_horn1 );
+        // horn
+        var right_transform = model_transform.times(Mat4.translation([1.6, .8, 1])).times(Mat4.rotation(-Math.PI / 2, Vec.of(0,1,0))).times(Mat4.rotation(-Math.PI / 4, Vec.of(0,0,1)));
+        this.draw_horn(graphics_state, right_transform);
+        var left_transform = model_transform.times(Mat4.rotation(Math.PI, Vec.of(0,0,1)));
+        left_transform = left_transform.times(Mat4.translation([1.6, -.8, 1])).times(Mat4.rotation(-Math.PI / 2, Vec.of(0,1,0))).times(Mat4.rotation(Math.PI / 4, Vec.of(0,0,1)));
+        this.draw_horn(graphics_state, left_transform);
+    }
+
+    draw_buffalo(graphics_state, model_transform, walk_r1, walk_r2, walk_r3, body_texture) // model_transform在身体中心
+    {
+        var r = Math.PI / 3 * Math.sin(1.5 * Math.PI / 2 * this.t);
+        // body(pillShape)
+        var body_transform = model_transform.times(Mat4.scale([3, 3, 3]));
+        this.draw_pillShape(graphics_state, body_transform, body_texture);
+        // four legs(symmetric)
+        // walk
+        var walk_fl_transform = model_transform.times(Mat4.translation([2.3, 0, 3.6])).times(Mat4.rotation(walk_r1, Vec.of(1, 0, 0)));
+        var walk_fr_transform = model_transform.times(Mat4.translation([-2.3, 0, 3.6])).times(Mat4.rotation(walk_r2, Vec.of(1, 0, 0)));
+        var walk_ll_transform = model_transform.times(Mat4.translation([2, .3, -5])).times(Mat4.rotation(walk_r3, Vec.of(1, 0, 0)));
+        var walk_lr_transform = model_transform.times(Mat4.translation([-2, .3, -5])).times(Mat4.rotation(walk_r1, Vec.of(1, 0, 0)));
+        // former left leg
+        var formerLeg_transform = walk_fl_transform.times(Mat4.translation([0, -2, 0]));
+        this.draw_leg(graphics_state, formerLeg_transform, body_texture);
+        // former right leg
+        formerLeg_transform = walk_fr_transform.times(Mat4.translation([0, -2, 0]));
+        this.draw_leg(graphics_state, formerLeg_transform, body_texture);
+        // latter left leg
+        var latterLeg_transform = walk_ll_transform.times(Mat4.translation([0, -1.3, 0])).times(Mat4.scale([1.2, 1.2, 1.2]));
+        this.draw_leg(graphics_state, latterLeg_transform, body_texture);
+        // latter right leg
+        latterLeg_transform = walk_lr_transform.times(Mat4.translation([0, -1.3, 0])).times(Mat4.scale([1.2, 1.2, 1.2]));
+        this.draw_leg(graphics_state, latterLeg_transform, body_texture);
+        // tail
+        var rotate_transform = model_transform.times(Mat4.translation([0, 1.6, -5.5])).times(Mat4.rotation(r, Vec.of(0, 0, 1)));
+        var tail_transform = rotate_transform.times(Mat4.translation([0, 0, -.5])).times(Mat4.scale([1.5, 1.5, 1.5])).times(Mat4.rotation(-Math.PI / 6, Vec.of(1, 0, 0)));
+        this.draw_tail(graphics_state, tail_transform, body_texture);
+        // neck
+        var neck_transform = model_transform.times(Mat4.translation([0, 0, 7.5])).times(Mat4.scale([2.3, 2.3, 2.5]));
+        this.shapes.tra_platform.draw(graphics_state, neck_transform, body_texture);
+        // head
+        var head_transform = model_transform.times(Mat4.translation([0, 0, 10]));
+        this.draw_head(graphics_state, head_transform, body_texture);
+    }
+
+    /***** Draw Crocodile *****/
+    draw_croco_body(graphics_state, model_transform) // model_transform在pill中心
+    {
+        var body_transform = model_transform.times(Mat4.scale([6, 3, 10]));
+        this.shapes.sphere.draw(graphics_state, body_transform, this.crocodile_skin2);
+        model_transform = model_transform.times(Mat4.translation([-4, 2, 6]));
+        var deco_transform = model_transform.times(Mat4.scale([.5, .5, .5]));
+        for(var i = 0; i < 5; i++)
+        {
+            deco_transform = deco_transform.times(Mat4.translation([0, 0, -4]));
+            this.shapes.sphere.draw(graphics_state, deco_transform, this.crocodile_skin1);
+            this.shapes.sphere.draw(graphics_state, deco_transform.times(Mat4.translation([16, 0, 0])), this.crocodile_skin1);
+        }
+    }
+
+    draw_croco_leg(graphics_state, model_transform)
+    {
+        var upper_transform = model_transform.times(Mat4.scale([.8, .8, 1]));
+        this.draw_pillShape(graphics_state, upper_transform, this.crocodile_skin2);
+        var middle_transform = model_transform.times(Mat4.translation([1, 0, 1.8])).times(Mat4.scale([.8, .8, .6])).times(Mat4.rotation(Math.PI / 2, Vec.of(0,1,0)));
+        this.draw_pillShape(graphics_state, middle_transform, this.crocodile_skin2);
+        var hand_transform = model_transform.times(Mat4.translation([2.5,0,1.8])).times(Mat4.scale([.8, .8, .8]));
+        this.shapes.sphere.draw(graphics_state, hand_transform, this.crocodile_skin2);
+    }
+
+    draw_croco_teeth(graphics_state, model_transform, direction)
+    {
+        var teeth_transform = model_transform.times(Mat4.scale([.3,.3,.3])).times(Mat4.rotation(direction * Math.PI / 2, Vec.of(1,0,0)));
+        this.shapes.cone.draw(graphics_state, teeth_transform, this.white);
+    }
+
+    draw_croco_uphead(graphics_state, model_transform) // model_transform在上嘴中心
+    {
+        // mouse
+        var upper_transform = model_transform.times(Mat4.scale([4, 2, 8])).times(Mat4.rotation(Math.PI / 4, Vec.of(0,0,1)));
+        this.shapes.tra_croco_mouse.draw(graphics_state, upper_transform, this.crocodile_skin2);
+        // eye
+        var lefteye_transform = model_transform.times(Mat4.translation([2, 1, -4])).times(Mat4.scale([.6,.6,1]));
+        this.shapes.sphere.draw(graphics_state, lefteye_transform, this.black);
+        var righteye_transform = model_transform.times(Mat4.translation([-2, 1, -4])).times(Mat4.scale([.6,.6,1]));
+        this.shapes.sphere.draw(graphics_state, righteye_transform, this.black);
+        // teeth
+        var leftup_teeth_transform = model_transform.times(Mat4.translation([2, -1.2, -2.5]));
+        var rightup_teeth_transform = model_transform.times(Mat4.translation([-2, -1.2, -2.5]));
+        for(var i = 0; i < 5; i++)
+        {
+            leftup_teeth_transform = leftup_teeth_transform.times(Mat4.translation([-.3, .1, 2]));
+            this.draw_croco_teeth(graphics_state, leftup_teeth_transform, 1);
+            rightup_teeth_transform = rightup_teeth_transform.times(Mat4.translation([.3, .1, 2]));
+            this.draw_croco_teeth(graphics_state, rightup_teeth_transform, 1);
+        }
+    }
+
+    draw_croco_downhead(graphics_state, model_transform) // model_transform在上头中心
+    {
+        var bottom_transform = model_transform.times(Mat4.translation([0,-2.1, 0])).times(Mat4.scale([4, 1, 8])).times(Mat4.rotation(Math.PI / 4, Vec.of(0,0,1)));
+        this.shapes.tra_croco_mouse.draw(graphics_state, bottom_transform, this.crocodile_skin2);
+        var leftbot_teeth_transform = model_transform.times(Mat4.translation([2, -1.3, -3.5]));
+        var rightbot_teeth_transform = model_transform.times(Mat4.translation([-2, -1.3, -3.5]));
+        for(var i = 0; i < 5; i++)
+        {
+            leftbot_teeth_transform = leftbot_teeth_transform.times(Mat4.translation([-.3, -.07, 2]));
+            this.draw_croco_teeth(graphics_state, leftbot_teeth_transform, -1);
+            rightbot_teeth_transform = rightbot_teeth_transform.times(Mat4.translation([.3, -.07, 2]));
+            this.draw_croco_teeth(graphics_state, rightbot_teeth_transform, -1);
+        }
+    }
+
+    draw_crocodile(graphics_state, model_transform, mouse_r) // model_transform在body中心
+    {
+        // body
+        this.draw_croco_body(graphics_state, model_transform);
+        // four legs
+        var formerleg_transform = model_transform.times(Mat4.translation([6, 0, 4])).times(Mat4.rotation(Math.PI / 2, Vec.of(0,1,0))).times(Mat4.rotation(Math.PI, Vec.of(0,0,1)));
+        this.draw_croco_leg(graphics_state, formerleg_transform);
+        formerleg_transform = model_transform.times(Mat4.rotation(Math.PI, Vec.of(0,0,1)));
+        formerleg_transform = formerleg_transform.times(Mat4.translation([6, 0, 4])).times(Mat4.rotation(Math.PI / 2, Vec.of(0,1,0))).times(Mat4.rotation(Math.PI, Vec.of(0,0,1)));
+        this.draw_croco_leg(graphics_state, formerleg_transform);
+        var latterleg_transform = model_transform.times(Mat4.translation([6, 0, -4])).times(Mat4.rotation(Math.PI / 2, Vec.of(0,1,0))).times(Mat4.rotation(Math.PI, Vec.of(0,0,1)));
+        this.draw_croco_leg(graphics_state, latterleg_transform);
+        latterleg_transform = model_transform.times(Mat4.rotation(Math.PI, Vec.of(0,0,1)));
+        latterleg_transform = latterleg_transform.times(Mat4.translation([6, 0, -4])).times(Mat4.rotation(Math.PI / 2, Vec.of(0,1,0))).times(Mat4.rotation(Math.PI, Vec.of(0,0,1)));
+        this.draw_croco_leg(graphics_state, latterleg_transform);
+        // tail
+        var tail_transform = model_transform.times(Mat4.translation([0, 0, -15])).times(Mat4.scale([4, 3, 10])).times(Mat4.rotation(Math.PI / 4, Vec.of(0,0,1))).times(Mat4.rotation(Math.PI, Vec.of(0,1,0)));
+        this.shapes.croco_tail.draw(graphics_state, tail_transform, this.crocodile_skin2);
+        // head
+        var rotate_transform = model_transform.times(Mat4.translation([0,0,8])).times(Mat4.rotation(-mouse_r, Vec.of(1,0,0)));
+        var up_transform = rotate_transform.times(Mat4.translation([0, .7, 6]));
+        this.draw_croco_uphead(graphics_state, up_transform);
+        var head_transform = model_transform.times(Mat4.translation([0, .7, 14]));
+        this.draw_croco_downhead(graphics_state, head_transform);
+    }
+
+    draw_talkboard(graphics_state, model_transform, texture) // model_transform在主画框中心
+    {
+        var main_transform = model_transform.times(Mat4.scale([1, .8, .5]));
+        this.shapes.cylinder.draw(graphics_state, main_transform, texture);
+        var small1_transform = model_transform.times(Mat4.translation([1, -1.2, 0])).times(Mat4.scale([.6, .4, .5]));
+        this.shapes.cylinder.draw(graphics_state, small1_transform, texture);
+        var small2_transform = model_transform.times(Mat4.translation([1.6, -2, 0])).times(Mat4.scale([.4, .2, .5]));
+        this.shapes.cylinder.draw(graphics_state, small2_transform, texture);
+    }
+
+    display( graphics_state )
+    {
+        var model_transform = Mat4.identity();             // We begin with a brand new model_transform every frame.
+
+        // *** Lights: *** Values of vector or point lights over time.  Two different lights *per shape* supported by Phong_Shader; more requires changing a number in the vertex
+        graphics_state.lights = [ new Light( Vec.of(  30,  30,  34, 1 ), Color.of( 0, .4, 0, 1 ), 100000 ),      // shader.  Arguments to construct a Light(): Light source position
+            new Light( Vec.of( -10, -20, -14, 0 ), Color.of( 1, 1, .3, 1 ), 100    ) ];    // or vector (homogeneous coordinates), color, and size.
+
+        /***** draw levels *****/
+        var lake_transform = model_transform.times(Mat4.translation([0, -10, 0])).times(Mat4.scale([60,3,100]));
+        this.shapes.box.draw(graphics_state, lake_transform, this.lake4);
+        var grass_transform = model_transform.times(Mat4.translation([18, -12, 5])).times(Mat4.scale([40, 8, 200]));
+        this.shapes.sphere.draw(graphics_state, grass_transform, this.grass);
+        var plain_transform = model_transform.times(Mat4.translation([50, 30, 0])).times(Mat4.scale([3, 40, 120]));
+        this.shapes.box.draw(graphics_state, plain_transform, this.sky2);
+        var plain2_transform = model_transform.times(Mat4.translation([0, 30, 100])).times(Mat4.scale([60, 40, 3]));
+        this.shapes.box.draw(graphics_state, plain2_transform, this.sky2);
+        var lakesky_transform = model_transform.times(Mat4.translation([0, 30, -100])).times(Mat4.scale([60, 40, 3]));
+        this.shapes.box.draw(graphics_state, lakesky_transform, this.sky1);
+        var lakesky2_transform = model_transform.times(Mat4.translation([-60, 30, 0])).times(Mat4.scale([3, 40, 100]));
+        this.shapes.box.draw(graphics_state, lakesky2_transform, this.sky1);
+
+        /***** animation *****/
+        // initial new variables
+        this.t = graphics_state.animation_time/1000;
+        var walk1_r1 = 0;
+        var walk1_r2 = 0;
+        var walk1_r3 = 0;
+        var walk2_r1 = 0;
+        var walk2_r2 = 0;
+        var walk2_r3 = 0;
+        var walk3_r1 = 0;
+        var walk3_r2 = 0;
+        var walk3_r3 = 0;
+        var walk4_r1 = 0;
+        var walk4_r2 = 0;
+        var walk4_r3 = 0;
+        var walk5_r1 = 0;
+        var walk5_r2 = 0;
+        var walk5_r3 = 0;
+        var walk6_r1 = 0;
+        var walk6_r2 = 0;
+        var walk6_r3 = 0;
+        var walk7_r1 = 0;
+        var walk7_r2 = 0;
+        var walk7_r3 = 0;
+        var buffalo1_transform = model_transform;
+        var buffalo2_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var buffalo3_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var buffalo4_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var buffalo5_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var buffalo6_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var buffalo7_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var crocodile_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var board1_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var texture_1 = this.white;
+        var board2_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var texture_2 = this.white;
+        var board3_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var texture_3 = this.white;
+        var board4_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var texture_4 = this.white;
+        var board5_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var texture_5 = this.white;
+        var stone_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var mouse_r = 0;
+        var cam_eye = Vec.of(0,0,0);
+        var cam_at = Vec.of(0,0,0);
+        var cam_up = Vec.of(0,1,0);
+        var point1_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var point2_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var point3_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var point4_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var point5_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        var point6_transform = model_transform.times(Mat4.translation([500, 500, 500]));
+        // action change
+        //*** 0-5s: buffalo_1 walking to river side ***//
+        if(this.t >= 0)
+        {
+            walk1_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk1_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk1_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo1_transform = model_transform.times(Mat4.translation([55-12*this.t, 1, -80+16*this.t])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-37*Math.PI / 180, Vec.of(0,1,0)));
+            cam_eye = Vec.of(-10+8*this.t, 5+2*this.t, 8);
+            cam_at = Vec.of(55-12*this.t, 0, -80+16*this.t);
+        }
+        //*** 5-8s: saw float crocodile, surprise ***//
+        if(this.t >= 5)
+        {
+            walk1_r1 = 0;
+            walk1_r2 = 0;
+            walk1_r3 = 0;
+            buffalo1_transform = model_transform.times(Mat4.translation([-5,1,0])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-37*Math.PI / 180, Vec.of(0,1,0)));
+            cam_eye = Vec.of(30, 15, 8);
+            cam_at = Vec.of(-5, 1, 0);
+        }
+        if(this.t >= 6)
+        {
+            crocodile_transform = model_transform.times(Mat4.translation([-18, -10.8+(this.t-6), -3])).times(Mat4.scale([.7,.7,.7]));
+            cam_eye = Vec.of(30-21*(this.t-6), 15-7*(this.t-6), 8+8*(this.t-6));
+            cam_at = Vec.of(-8, 1, 0);
+        }
+        //*** 8-11s: guess it's wood ***//
+        if(this.t >= 8)
+        {
+            crocodile_transform = model_transform.times(Mat4.translation([-18, -8.8, -3])).times(Mat4.scale([.7,.7,.7]));
+            cam_eye = Vec.of(-12, 1, 24);
+            cam_at = Vec.of(-8, 1, 0);
+        }
+        if(this.t >= 9)
+        {
+            board1_transform = model_transform.times(Mat4.translation([-8.6, 3, 15])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(143*Math.PI/180, Vec.of(0,1,0)));
+            texture_1 = this.wood;
+        }
+        //*** 11-15s: touch "wood" ***//
+        if(this.t >= 11)
+        {
+            walk1_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk1_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk1_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo1_transform = model_transform.times(Mat4.translation([-5-3.5*(this.t-11), 1-1.5*(this.t-11), 0])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-37*Math.PI / 180 - (this.t-11)*26*Math.PI/180, Vec.of(0,1,0)));
+            board1_transform = model_transform.times(Mat4.translation([-200, 0, 0]));
+            cam_eye = Vec.of(-12-16*(this.t-11), 1+(this.t-11), 24-7*(this.t-11));
+            cam_at = Vec.of(-8, 1, 0);
+        }
+        if(this.t >= 13)
+        {
+            walk1_r1 = 0;
+            walk1_r2 = -((this.t-10)%2) * (Math.PI/6);
+            walk1_r3 = 0;
+            buffalo1_transform = model_transform.times(Mat4.translation([-12, -2, 0])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-Math.PI / 2, Vec.of(0,1,0)));
+            cam_eye = Vec.of(-44, 3, 10);
+            cam_at = Vec.of(-8, 1, 0);
+        }
+        //*** 15-17s: confirm "wood" ***//
+        if(this.t >= 15)
+        {
+            walk1_r2 = 0;
+            board1_transform = model_transform.times(Mat4.translation([-33, 2.5, 8])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(Math.PI/2, Vec.of(0,1,0)));
+        }
+        //*** 17-20s: buffalo_2 comes ***//
+        if(this.t >= 17)
+        {
+            board1_transform = model_transform.times(Mat4.translation([-200, 0, 0]));
+            // buffalo_1 go back
+            walk1_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk1_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk1_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo1_transform = model_transform.times(Mat4.translation([-12+(this.t-17), -2+(this.t-17), -3.33*(this.t-17)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-Math.PI/2+17.67*(this.t-17)*Math.PI/180, Vec.of(0,1,0)));
+            // buffalo_2 comes
+            walk2_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk2_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk2_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo2_transform = model_transform.times(Mat4.translation([25-10*(this.t-17), 1, 22.32-5.77*(this.t-17)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-2*Math.PI / 3, Vec.of(0,1,0)));
+            // change camera
+            cam_eye = Vec.of(-44-2*(this.t-17), 3, 10-5*(this.t-17));
+            cam_at = Vec.of(2, 1, 0);
+        }
+        //*** 20-22s: buffalo_1 told buffalo_2: it's wood ***//
+        if(this.t >= 20)
+        {
+            walk1_r1 = 0;
+            walk1_r2 = 0;
+            walk1_r3 = 0;
+            buffalo1_transform = model_transform.times(Mat4.translation([-9,1,-10])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-37*Math.PI / 180, Vec.of(0,1,0)));
+            walk2_r1 = 0;
+            walk2_r2 = 0;
+            walk2_r3 = 0;
+            buffalo2_transform = model_transform.times(Mat4.translation([-5, 1, 5])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-2*Math.PI / 3, Vec.of(0,1,0)));
+            cam_eye = Vec.of(-50, 3, -5);
+            cam_at = Vec.of(2, 1, 0);
+            // conversation
+            board1_transform = model_transform.times(Mat4.translation([-20, 4, -8])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-Math.PI/2, Vec.of(0,1,0)));
+        }
+        //*** 22-24s: buffalo_2 thinks crocodile ***//
+        if(this.t >= 22)
+        {
+            board2_transform = model_transform.times(Mat4.translation([-20, 4, 4])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(Math.PI/2, Vec.of(0,1,0)));
+            texture_2 = this.crocodile1;
+        }
+        //*** 24-28s: buffalo_1 jumps on the "wood" ***//
+        if(this.t >= 24)
+        {
+            board1_transform = model_transform.times(Mat4.translation([-200, 0, 0]));
+            buffalo1_transform = model_transform.times(Mat4.translation([-9-5.5*(this.t-24),-5*(this.t-24)*(this.t-24)+9*(this.t-24)+1,-10+3.5*(this.t-24)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-37*Math.PI / 180, Vec.of(0,1,0)));
+        }
+        if(this.t >= 26)
+        {
+            var r = Math.PI / 8 * Math.sin(2*Math.PI / 2 * this.t);
+            buffalo1_transform = model_transform.times(Mat4.translation([-20,-1,-3])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-37*Math.PI / 180, Vec.of(0,1,0))).times(Mat4.rotation(r, Vec.of(0,0,1)));
+        }
+        //*** 28-32s: buffalo_2 believes it's "wood" ***//
+        if(this.t >= 28)
+        {
+            buffalo1_transform = model_transform.times(Mat4.translation([-20+5.5*(this.t-28),-5*(this.t-28)*(this.t-28)+11*(this.t-28)-1,-3-3.5*(this.t-28)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-37*Math.PI / 180, Vec.of(0,1,0)));
+        }
+        if(this.t >= 30)
+        {
+            buffalo1_transform = model_transform.times(Mat4.translation([-9,1,-10])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-37*Math.PI / 180, Vec.of(0,1,0)));
+            texture_2 = this.wood;
+        }
+        //*** 32-37s: buffalo_3 & 4 come ***//
+        if(this.t >= 32)
+        {
+            board2_transform = model_transform.times(Mat4.translation([-200, 0, 0]));
+            walk1_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk1_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk1_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo1_transform = model_transform.times(Mat4.translation([-9+3.6*(this.t-32),1,-10+2*(this.t-32)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-37*Math.PI / 180-10.6*(this.t-32)*Math.PI/180, Vec.of(0,1,0)));
+            walk3_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk3_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk3_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo3_transform = model_transform.times(Mat4.translation([-7, 0, -80+12*(this.t-32)])).times(Mat4.scale([.7,.7,.7]));
+            walk4_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk4_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk4_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo4_transform = model_transform.times(Mat4.translation([0, 1, -75+12*(this.t-32)])).times(Mat4.scale([.5,.5,.5]));
+            cam_eye = Vec.of(-50+10*(this.t-32), 3+2*(this.t-32), -5+7*(this.t-32));
+            cam_at = Vec.of(-5, 1, 0);
+        }
+        //*** 37-40s: buffalo_1-4's thought ***//
+        if(this.t >= 37)
+        {
+            walk1_r1 = 0;
+            walk1_r2 = 0;
+            walk1_r3 = 0;
+            buffalo1_transform = model_transform.times(Mat4.translation([9,1,0])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-Math.PI / 2, Vec.of(0,1,0)));
+            walk3_r1 = 0;
+            walk3_r2 = 0;
+            walk3_r3 = 0;
+            buffalo3_transform = model_transform.times(Mat4.translation([-7, 0, -20])).times(Mat4.scale([.7,.7,.7]));
+            walk4_r1 = 0;
+            walk4_r2 = 0;
+            walk4_r3 = 0;
+            buffalo4_transform = model_transform.times(Mat4.translation([0, 1, -15])).times(Mat4.scale([.5,.5,.5]));
+            board1_transform = model_transform.times(Mat4.translation([3, 6, 4])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(Math.PI, Vec.of(0,1,0)));
+            board2_transform = model_transform.times(Mat4.translation([-12, 5, 6])).times(Mat4.scale([.7,.7,.7]));
+            board3_transform = model_transform.times(Mat4.translation([-9, 4, -8])).times(Mat4.scale([.7,.7,.7]));
+            texture_3 = this.crocodile1;
+            board4_transform = model_transform.times(Mat4.translation([-2, 7, 2])).times(Mat4.scale([.5,.5,.5]));
+            texture_4 = this.crocodile1;
+            cam_eye = Vec.of(0, 13, 30);
+            cam_at = Vec.of(-5, 1, 0);
+        }
+        //*** 40-44s: buffalo_2 jumps on the "wood" ***//
+        if(this.t >= 40)
+        {
+            board2_transform = model_transform.times(Mat4.translation([-200, 0, 0]));
+            buffalo2_transform = model_transform.times(Mat4.translation([-5-7*(this.t-40), -5*(this.t-40)*(this.t-40)+9*(this.t-40)+1, 5-4*(this.t-40)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-2*Math.PI / 3, Vec.of(0,1,0)));
+        }
+        if(this.t >= 42)
+        {
+            var r = Math.PI / 8 * Math.sin(2*Math.PI / 2 * this.t);
+            buffalo2_transform = model_transform.times(Mat4.translation([-19,-1,-3])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-2*Math.PI / 3, Vec.of(0,1,0))).times(Mat4.rotation(r, Vec.of(0,0,1)));
+        }
+        //*** 44-48s: buffalo_2 jumps back ***//
+        if(this.t >= 44)
+        {
+            buffalo2_transform = model_transform.times(Mat4.translation([-19+7*(this.t-44),-5*(this.t-44)*(this.t-44)+11*(this.t-44)-1,-3+4*(this.t-44)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-2*Math.PI / 3, Vec.of(0,1,0)));
+        }
+        if(this.t >= 46)
+        {
+            buffalo2_transform = model_transform.times(Mat4.translation([-5,1,5])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-2*Math.PI / 3, Vec.of(0,1,0)));
+        }
+        //*** 48-56: buffalo_3 throws a stone and 3 & 4 believe it's a "wood" ***//
+        if(this.t >= 48)
+        {
+            cam_eye = Vec.of(-12*(this.t-48), 13-6.5*(this.t-48), 30-2*(this.t-48));
+            cam_at = Vec.of(-8, 1, 0);
+        }
+        if(this.t >= 50)
+        {
+            cam_eye = Vec.of(-24, 0, 26);
+            cam_at = Vec.of(-8, 1, 0);
+            walk3_r2 = -((this.t-49)%2) * (Math.PI/6);
+            stone_transform = model_transform.times(Mat4.translation([-12-4*(this.t-50),-3-2*(this.t-50),-10+2.5*(this.t-50)])).times(Mat4.scale([.5,.5,.5])).times(Mat4.rotation(Math.PI * (this.t-50), Vec.of(0,0,1)));
+        }
+        if(this.t >= 52)
+        {
+            walk3_r2 = 0;
+            stone_transform = model_transform.times(Mat4.translation([-20,-7,-5])).times(Mat4.scale([.3,.3,.3]));
+            cam_eye = Vec.of(-24-11*(this.t-52), 4*(this.t-52), 26-21*(this.t-52));
+            cam_at = Vec.of(-5, 1, 0);
+        }
+        if(this.t >= 54)
+        {
+            cam_eye = Vec.of(-46, 8, -16);
+            cam_at = Vec.of(-5, 1, 0);
+            texture_3 = this.wood;
+            texture_4 = this.wood;
+        }
+        //*** 56-66: buffalo_group come ***//
+        if(this.t >= 56)
+        {
+            board1_transform = model_transform.times(Mat4.translation([-200, 0, 0]));
+            board3_transform = model_transform.times(Mat4.translation([-200, 0, 0]));
+            board4_transform = model_transform.times(Mat4.translation([-200, 0, 0]));
+            walk2_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk2_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk2_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo2_transform = model_transform.times(Mat4.translation([-5+(this.t-56),1,5+.3*(this.t-56)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-2*Math.PI / 3, Vec.of(0,1,0)));
+            walk5_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk5_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk5_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo5_transform = model_transform.times(Mat4.translation([18-2.3*(this.t-56),2,44-3.4*(this.t-56)])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            walk6_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk6_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk6_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo6_transform = model_transform.times(Mat4.translation([18-2.3*(this.t-56),1,56-3.4*(this.t-56)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            walk7_r1 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t);
+            walk7_r2 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk7_r3 = Math.PI / 6 * Math.sin(1.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            buffalo7_transform = model_transform.times(Mat4.translation([18-2.3*(this.t-56),1,62-3*(this.t-56)])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            cam_eye = Vec.of(-46+.6*(this.t-56), 8, -16-1.6*(this.t-56));
+            cam_at = Vec.of(-5, 1, 5);
+        }
+        //*** 66-68: buffalo_group believe "wood" ***//
+        if(this.t >= 66)
+        {
+            walk2_r1 = 0;
+            walk2_r2 = 0;
+            walk2_r3 = 0;
+            buffalo2_transform = model_transform.times(Mat4.translation([5,1,8])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-2*Math.PI / 3, Vec.of(0,1,0)));
+            walk5_r1 = 0;
+            walk5_r2 = 0;
+            walk5_r3 = 0;
+            buffalo5_transform = model_transform.times(Mat4.translation([-5,2,10])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            walk6_r1 = 0;
+            walk6_r2 = 0;
+            walk6_r3 = 0;
+            buffalo6_transform = model_transform.times(Mat4.translation([-5,1,22])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            walk7_r1 = 0;
+            walk7_r2 = 0;
+            walk7_r3 = 0;
+            buffalo7_transform = model_transform.times(Mat4.translation([-5,1,32])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            board1_transform = model_transform.times(Mat4.translation([9, 5, 0])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-135*Math.PI/180, Vec.of(0,1,0)));
+            board2_transform = model_transform.times(Mat4.translation([5, 5, 6])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-135*Math.PI/180, Vec.of(0,1,0)));
+            board3_transform = model_transform.times(Mat4.translation([-4, 5, -19])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(-135*Math.PI/180, Vec.of(0,1,0)));
+            board4_transform = model_transform.times(Mat4.translation([0, 5, -14])).times(Mat4.scale([.5,.5,.5])).times(Mat4.rotation(-135*Math.PI/180, Vec.of(0,1,0)));
+            cam_eye = Vec.of(-40, 8, -32);
+            cam_at = Vec.of(-5, 1, 5);
+        }
+        //*** 68-70: buffalo_group believe "wood" ***//
+        if(this.t >= 68)
+        {
+            board5_transform = model_transform.times(Mat4.translation([-10, 8, 10])).times(Mat4.rotation(Math.PI/6, Vec.of(0,1,0)));
+            texture_5 = this.wood;
+        }
+        //*** 70-75: buffalo_group walk toward "wood" ***//
+        if(this.t >= 70)
+        {
+            board5_transform = model_transform.times(Mat4.translation([-200, 0, 0]));
+            buffalo5_transform = model_transform.times(Mat4.translation([-5-.6*(this.t-70),2-.2*(this.t-70),10-(this.t-70)])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            cam_eye = Vec.of(-40+2*(this.t-70), 8-.4*(this.t-70), -32+11.4*(this.t-70));
+            cam_at = Vec.of(-10, 1, 5);
+        }
+        //*** 75-78: buffalo_group was eaten by crocodile ***//
+        if(this.t >= 75)
+        {
+            buffalo5_transform = model_transform.times(Mat4.translation([-8,1,5])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            cam_eye = Vec.of(-30, 6, 25);
+            cam_at = Vec.of(-10, 1, 5);
+        }
+        //*** 78-80: crocodile swims to buffalo ***//
+        if(this.t >= 78)
+        {
+            mouse_r = Math.PI / 4;
+            crocodile_transform = model_transform.times(Mat4.translation([-18+(this.t-78), -8.8+2*(this.t-78), -3])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(Math.PI/6*(this.t-78), Vec.of(0,1,0))).times(Mat4.rotation(-Math.PI/8*(this.t-78), Vec.of(1,0,0)));
+        }
+        //*** 80-85: crocodile eats buffalo ***//
+        if(this.t >= 80)
+        {
+            walk5_r1 = Math.PI / 6 * Math.sin(.5 * Math.PI / 2 * this.t);
+            walk5_r2 = Math.PI / 6 * Math.sin(.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            walk5_r3 = Math.PI / 6 * Math.sin(.5 * Math.PI / 2 * this.t + 5*Math.PI / 6);
+            crocodile_transform = model_transform.times(Mat4.translation([-16-2*(this.t-80), -4.8-3.5*(this.t-80), -3])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(Math.PI/3, Vec.of(0,1,0))).times(Mat4.rotation(-Math.PI/4, Vec.of(1,0,0)));
+            buffalo5_transform = model_transform.times(Mat4.translation([-8-2*(this.t-80),1-3.5*(this.t-80),5])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            cam_eye = Vec.of(-30+(this.t-80), 6+(this.t-80), 25+(this.t-80));
+            cam_at = Vec.of(-16, -1, -3);
+        }
+        //*** 85-87: silence ***//
+        if(this.t >= 85)
+        {
+            crocodile_transform = model_transform.times(Mat4.translation([-26, -22.3, -3])).times(Mat4.scale([.7,.7,.7])).times(Mat4.rotation(Math.PI/3, Vec.of(0,1,0))).times(Mat4.rotation(-Math.PI/4, Vec.of(1,0,0)));
+            buffalo5_transform = model_transform.times(Mat4.translation([-18,-16.5,5])).times(Mat4.rotation(-150*Math.PI / 180, Vec.of(0,1,0)));
+            cam_eye = Vec.of(-25, 11, 30);
+            cam_at = Vec.of(-16, -1, -3);
+        }
+        //*** 87-90: change talkboard to crocodile ***//
+        if(this.t >= 87)
+        {
+            texture_1 = this.crocodile1;
+            texture_2 = this.crocodile1;
+            texture_3 = this.crocodile1;
+            texture_4 = this.crocodile1;
+        }
+        //*** 90-93: THE END ***//
+        if(this.t >= 90)
+        {
+            point1_transform = model_transform.times(Mat4.translation([-30, -3, -11])).times(Mat4.scale([2,2,.5])).times(Mat4.rotation(-Math.PI / 3, Vec.of(1,0,0)));
+        }
+        if(this.t >= 90.5)
+        {
+            point2_transform = model_transform.times(Mat4.translation([-25, -3, -11])).times(Mat4.scale([2,2,.5])).times(Mat4.rotation(-Math.PI / 3, Vec.of(1,0,0)));
+        }
+        if(this.t >= 91)
+        {
+            point3_transform = model_transform.times(Mat4.translation([-20, -3, -11])).times(Mat4.scale([2,2,.5])).times(Mat4.rotation(-Math.PI / 3, Vec.of(1,0,0)));
+        }
+        if(this.t >= 91.5)
+        {
+            point4_transform = model_transform.times(Mat4.translation([-30, -4, -2])).times(Mat4.scale([2,2,.5])).times(Mat4.rotation(-Math.PI / 3, Vec.of(1,0,0)));
+        }
+        if(this.t >= 92)
+        {
+            point5_transform = model_transform.times(Mat4.translation([-25, -4, -2])).times(Mat4.scale([2,2,.5])).times(Mat4.rotation(-Math.PI / 3, Vec.of(1,0,0)));
+        }
+        if(this.t >= 92.5)
+        {
+            point6_transform = model_transform.times(Mat4.translation([-20, -4, -2])).times(Mat4.scale([2,2,.5])).times(Mat4.rotation(-Math.PI / 3, Vec.of(1,0,0)));
+        }
+
+        this.draw_buffalo(graphics_state, buffalo1_transform, walk1_r1, walk1_r2, walk1_r3, this.buffalo_skin_body4);
+        this.draw_crocodile(graphics_state, crocodile_transform, mouse_r);
+        this.draw_talkboard(graphics_state, board1_transform, texture_1);
+        this.draw_buffalo(graphics_state, buffalo2_transform, walk2_r1, walk2_r2, walk2_r3, this.buffalo_skin_body);
+        this.draw_talkboard(graphics_state, board2_transform, texture_2);
+        this.draw_buffalo(graphics_state, buffalo3_transform, walk3_r1, walk3_r2, walk3_r3, this.buffalo_skin_body3);
+        this.draw_buffalo(graphics_state, buffalo4_transform, walk4_r1, walk4_r2, walk4_r3, this.buffalo_skin_body2);
+        this.draw_talkboard(graphics_state, board3_transform, texture_3);
+        this.draw_talkboard(graphics_state, board4_transform, texture_4);
+        this.shapes.stone.draw(graphics_state, stone_transform, this.silver);
+        this.draw_buffalo(graphics_state, buffalo5_transform, walk5_r1, walk5_r2, walk5_r3, this.buffalo_skin_body2);
+        this.draw_buffalo(graphics_state, buffalo6_transform, walk6_r1, walk6_r2, walk6_r3, this.buffalo_skin_body4);
+        this.draw_buffalo(graphics_state, buffalo7_transform, walk7_r1, walk7_r2, walk7_r3, this.buffalo_skin_body);
+        this.draw_talkboard(graphics_state, board5_transform, texture_5);
+        this.shapes.cylinder.draw(graphics_state, point1_transform, this.letter_t);
+        this.shapes.cylinder.draw(graphics_state, point2_transform, this.letter_h);
+        this.shapes.cylinder.draw(graphics_state, point3_transform, this.letter_e);
+        this.shapes.cylinder.draw(graphics_state, point4_transform, this.letter_e);
+        this.shapes.cylinder.draw(graphics_state, point5_transform, this.letter_n);
+        this.shapes.cylinder.draw(graphics_state, point6_transform, this.letter_d);
+        graphics_state.camera_transform = Mat4.look_at(cam_eye, cam_at, cam_up);
+    }
+
+    make_control_panel()   // This function of a scene sets up its keyboard shortcuts.
+    {
+        const globals = this.globals;
+        this.live_string(() => {return "FPS: " + (1000/globals.graphics_state.animation_delta_time).toFixed(3)});
+    }
+}
+
+</script>
+<style>
+  table { border-collapse: collapse; display:block; overflow-x: auto; }
+  table, th, td { border: 2px solid black; vertical-align: top; white-space: nowrap }
+  th, td { overflow: hidden;  }
+  button { position: relative; background-color: #4C9F50; color: white; padding: 6px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); transition: background-color .3s, transform .3s }
+  button:hover, button:focus { transform: scale(1.2); color:gold }
+  .dropdown { display:inline-block }
+  .dropdown-content { display: none; position: absolute; background-color: #f9f9f9; min-width: 100px; overflow: auto; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2) }
+  .dropdown-content a { color: black; padding: 4px 4px; display: block }
+  .dropdown a:hover { background-color: #f1f1f1 }
+  .show { display:inline-block }
+</style>
+</head><body>
+<div id="explanation_section"></div>
+<div id="canvases"></div>
+<table id="control_buttons" class="dropdown" style="display:block; width: 70%;  border: 0px; margin: 0 0 50px 0"><tr></tr></table>
+<div id="code_panel" style="font-family: monospace; white-space: pre; margin: 50px 0" >
+  <div id="code_display"  data-displayed="" ></div>
+  <button id="edit_button" style="display:none">Start editing</button> 
+  <table id="class_list" class="dropdown" style="display:block; border: 0px; border-spacing: 10px " >
+    <tr><td colspan="2">Click below to navigate through all classes that are defined. <br>&nbsp;<br>Main demo: <span name="main_demo_link"></span></td></tr>
+    <tr style="text-align:center"><td>tinywebgl-ucla.js</td><td>dependencies.js</td></tr><tr></tr></table>
+</div>
+<form name="new_demo_source_code" style="display:none">  
+  <p style="margin: 50px 0"><i><b>What can I put here?</b></i>  A JavaScript class, with any valid JavaScript inside.  Your code can use classes from this demo, or from ANY demo on the 
+  encyclopedia of code --  the dependencies will automatically be pulled in to run your demo!<br></p>
+  <textarea rows="30" cols="140" name="new_demo_code"></textarea><br>
+  <div id="submit_result" style="margin: 10px 0"></div>
+  <button type="submit" style="margin: 0px 50px 0px 0px">Save as new webpage</button> 
+  <input type="text" name="author"   placeholder="Author name">
+  <input type="text" name="password" placeholder="Password" style="display:none">
+  <span id="overwrite_panel" style="display:none"><label>Overwrite?<input type="checkbox" name="overwrite" autocomplete="off"></label></span>
+  <span id="beginner_panel"><label>Beginner Mode<input type="checkbox" checked onchange="document.querySelector('#expert_panel').style.display='block'; beginner_panel.style.display='none'"></label></span>
+  <div id="expert_panel" style="display:none;"><label><input type="checkbox" name="finished" autocomplete="off">
+    Optional:  This demo is finished; consider it for public listing on the main page.  
+    I believe that this demo is the one true way to minimalistically do what its name says.
+    The code's readability and structure are so good as to maximize how easy it is to memorize it.
+    </label></div>  
+</form>
+</body></html>
