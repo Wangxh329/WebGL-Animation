@@ -1,6 +1,5 @@
 # WebGL-Animation
 
-### Xiaohan Wang
 ### CS 174A, Fall 2017
 
 
@@ -99,13 +98,13 @@ Role: 1 crocodile, 7 buffalos
     When *delta_t = 2*, *buffalo1_y = -1*;
     In direction x & z, just linearly change the position. But in direction y, it has gravity, then let largest height be h, time from 1 to h is t1, time from h to -1 is t2, then
 
-      *h = 1 + 1/2 x g x t1^2*      
+      h = 1 + 1/2 x g x t1^2   
 
-      *-1 = h - 1 / 2 x g x t^2*  
+      -1 = h - 1 / 2 x g x t^2
 
-      *t1 + t2 = 2*             
+      t1 + t2 = 2
 
-  --> *h = 5.05*, *t1 = 0.9*, *t2 = 1.1*
+      --> *h = 5.05*, *t1 = 0.9*, *t2 = 1.1*
 
     Then we can get the parabolic function is *y = -5 x delta_t^2 + 9 x delta_t + 1*
 
@@ -116,3 +115,6 @@ After configure your browser, there should be a live animation showing on your s
 ![Screenshot_1](https://github.com/Wangxh329/WebGL-Animation/blob/master/assets/sample_screenshot/screenshot_1.jpeg?raw=true)
 
 ![Screenshot_2](https://github.com/Wangxh329/WebGL-Animation/blob/master/assets/sample_screenshot/screenshot_2.jpeg?raw=true)
+
+# Copyright Clarification 
+The file ``dependencies.js`` and ``tinywebgl-ucla.js`` are provided by the class. Only modified some snippet and mainly contributed the code in ``index.html``. The background music *Summer.mp3* and texture pictures in *assets* folder are all from Website. Feel free to get some tips when you struggled at some trivial points. I am very happy if help. But be careful to copy the code directly ^_^.
