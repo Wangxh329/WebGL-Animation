@@ -104,7 +104,7 @@ Role: 1 crocodile, 7 buffalos
 
       t1 + t2 = 2
 
-      --> *h = 5.05*, *t1 = 0.9*, *t2 = 1.1*
+      --> h = 5.05, t1 = 0.9, t2 = 1.1
 
     Then we can get the parabolic function is *y = -5 x delta_t^2 + 9 x delta_t + 1*
 
