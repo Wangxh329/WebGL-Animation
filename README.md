@@ -54,6 +54,46 @@ Role: 1 crocodile, 7 buffalos
 - 90-93s: THE END
 
 
+# Coding Structure
+### index.html
+1. Add some new defined Shapes class with new positions, texture ranges and normals, including:
+    * ``Cylinder``
+    * ``Gradient_Tube``
+    * ``Half_Surface_Of_Revolution``(code in ``dependencies.js``)
+    * ``Half_Gradient_Tube``
+    * ``Trapezoidal_Cylinder``
+    * ``Half_Trapezoidal_Cylinder``
+    * ``LeafShape_front``
+    * ``LeafShape_back``
+    * ``Circle_Triangle``
+    * ``Circle``
+    * ``Semi_Circle``
+    * ``Semi_Sphere``
+2. Add a new scene ``Animation_Scene`` to display shapes and animation，including:
+    * In constructor: initial ``graphics_state``, ``camera_transform``, ``projection_transform``, submit needed shapes to GPU buffer (initial in unit length), upload texture picture from assets folder
+    * Draw crocodile and buffalo with hierarchical structure, including:
+        - ``draw_pillShape(graphics_state, model_transform, body_texture)``
+        - ``draw_buffalo(graphics_state, model_transform, walk_r1, walk_r2, walk_r3, body_texture)``
+            - ``draw_leg(graphics_state, model_transform, body_texture)``
+                - ``draw_upperLeg(graphics_state, model_transform, body_texture)``
+                - ``draw_middleLeg(graphics_state, model_transform)``
+                - ``draw_foot(graphics_state, model_transform)``
+            - ``draw_tail(graphics_state, model_transform, body_texture)``
+            - ``draw_head(graphics_state, model_transform, body_texture)``
+                - ``draw_mouse(graphics_state, model_transform, r, body_texture)``
+                - ``draw_horn(graphics_state, model_transform)``
+        - ``draw_crocodile(graphics_state, model_transform, mouse_r)``
+            - ``draw_croco_body(graphics_state, model_transform)``
+            - ``draw_croco_leg(graphics_state, model_transform)``
+            - ``draw_croco_uphead(graphics_state, model_transform)``
+                - ``draw_croco_teeth(graphics_state, model_transform, direction)``
+            - ``draw_croco_downhead(graphics_state, model_transform)``
+                - ``draw_croco_teeth(graphics_state, model_transform, direction)``
+        - ``draw_talkboard(graphics_state, model_transform, texture)``
+    * Write function ``display(graphics_state)``: according to ``graphics_state.animation_time``, split into several different subscenes to make animation as mentioned before
+    * Add a ``make_control_panel()`` to display the frame rate of the program
+
+
 # Grading Points
 - [4 points] Creativity (story, aesthetic style, etc).
   
